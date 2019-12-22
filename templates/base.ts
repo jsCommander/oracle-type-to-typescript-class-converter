@@ -20,7 +20,6 @@ import {
 export interface OracleProcedureData {
   sql: string;
   binds: BindParameters;
-  plsqlParams: string;
 }
 
 export class OracleDate {
