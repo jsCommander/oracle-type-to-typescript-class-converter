@@ -52,7 +52,7 @@ export interface OracleProcInfo {
   SUBPROGRAM_ID: number;
 }
 
-export interface TypeAttrInfo {
+export interface OracleTypeAttrInfo {
   ATTR_NAME: string;
   ATTR_NO: number;
   ATTR_TYPE_MOD: string;
@@ -67,6 +67,26 @@ export interface TypeAttrInfo {
   PRECISION: string;
   SCALE: string;
   TYPE_NAME: string;
+}
+
+export interface OracleCollectionTypeInfo {
+  CHAR_USED: string;
+  CHARACTER_SET_NAME: null;
+  COLL_TYPE: string;
+  ELEM_STORAGE: null;
+  ELEM_TYPE_MOD: null;
+  ELEM_TYPE_NAME: string;
+  ELEM_TYPE_OWNER: string;
+  ELEM_TYPE_PACKAGE: string;
+  INDEX_BY: null;
+  LENGTH: null;
+  NULLS_STORED: string;
+  OWNER: string;
+  PACKAGE_NAME: string;
+  PRECISION: null;
+  SCALE: null;
+  TYPE_NAME: string;
+  UPPER_BOUND: null;
 }
 
 export type TypeInfoParseFn = (typeName: string) => TypeAttrInfo[];

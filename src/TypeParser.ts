@@ -2,8 +2,9 @@ import * as fs from "fs";
 import {
   OracleTypeInfo,
   OracleProcParams,
-  TypeAttrInfo,
-  OracleProcInfo
+  OracleTypeAttrInfo,
+  OracleProcInfo,
+  OracleCollectionTypeInfo
 } from "./interfaces";
 
 export interface ParserConfig {
@@ -64,12 +65,13 @@ export class TypeParser {
     return enumText;
   }
 
-  makeRecordInterface(typeInfo: TypeAttrInfo[]) {
+  makeRecordInterface(typeInfo: OracleTypeAttrInfo[]) {
     const name = typeInfo[0].TYPE_NAME;
     const fields: string[] = [];
     for (const type of typeInfo) {
       const jsType = this.oracleTypeToTsType(type.ATTR_TYPE_NAME);
-      const field = `${type.ATTR_NAME}:${jsType};`;
+      const swaggerInfo = "@ApiProperty()";
+      const field = `${swaggerInfo} ${type.ATTR_NAME}:${jsType};`;
       fields.push(field);
     }
 
@@ -79,9 +81,9 @@ export class TypeParser {
     return typeInterface;
   }
 
-  makeCollectionType(type: OracleTypeInfo) {
-    const typeName = type.TYPE_NAME.replace("TAB", "REC");
-    return `\nexport type ${type.TYPE_NAME} = ${typeName}[]; `;
+  makeCollectionType(type: OracleCollectionTypeInfo) {
+    const jsType = this.oracleTypeToTsType(type.ELEM_TYPE_NAME);
+    return `\nexport type ${type.TYPE_NAME} = ${jsType}[];\n`;
   }
 
   makeFunction(procParams: OracleProcParams[]) {
@@ -191,7 +193,7 @@ export class TypeParser {
       return "string";
     }
     if (oracleType.includes("DATE")) {
-      return "OracleDate";
+      return "string";
     }
 
     return oracleType.toUpperCase();

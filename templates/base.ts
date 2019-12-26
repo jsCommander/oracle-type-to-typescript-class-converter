@@ -21,12 +21,3 @@ export interface OracleProcedureData {
   sql: string;
   binds: BindParameters;
 }
-
-export class OracleDate {
-  readonly regex = /^\d{2}-\w{3}-\d{4}$/;
-  constructor(public date: string) {
-    if (!this.regex.test(date)) {
-      throw new Error(`wrong date format, expected dd-mmm-yyyy`);
-    }
-  }
-}

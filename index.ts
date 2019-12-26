@@ -45,6 +45,7 @@ async function main() {
   await parseEnums(outputFile, packageName, owner);
   await parsePackageType(outputFile, packageName);
   await parseOwnerType(outputFile, owner);
+  await parseOwnerType(outputFile, "SMASTER");
 
   await parseProcs(outputFile, packageName);
 }
@@ -58,13 +59,24 @@ async function parseEnums(
 ) {
   // Package type enums
   const packageTypes = await db.getAllPackageTypes(packageName);
-  const packageEnum = parser.makeTypesEnum("PACKAGE_TYPES", packageTypes);
+  const packageEnum = parser.makeTypesEnum(
+    getTypeName(packageName),
+    packageTypes
+  );
   await fs.appendFile(enumFile, packageEnum);
 
   // Owner type enums
   const ownerTypes = await db.getAllOwnerTypes(owner);
-  const ownerEnum = parser.makeTypesEnum("OWNER_TYPES", ownerTypes);
+  const ownerEnum = parser.makeTypesEnum(getTypeName(owner), ownerTypes);
   await fs.appendFile(enumFile, ownerEnum);
+
+  // smaster type enums
+  const smasterTypes = await db.getAllOwnerTypes("SMASTER");
+  const smasterEnum = parser.makeTypesEnum(
+    getTypeName("SMASTER"),
+    smasterTypes
+  );
+  await fs.appendFile(enumFile, smasterEnum);
 
   // Package procedures enums
   const packageProcs = await db.getAllPackageProcedures(packageName);
@@ -76,8 +88,13 @@ async function parsePackageType(typeFile: string, packageName: string) {
   const types = await db.getAllPackageTypes(packageName);
   for (const type of types) {
     if (type.TYPECODE === "COLLECTION") {
-      const typeText = parser.makeCollectionType(type);
-      await fs.appendFile(typeFile, typeText);
+      const collectionType = await db.getPackageCollectionTypeInfo(
+        type.TYPE_NAME
+      );
+      if (collectionType.length > 0) {
+        const typeText = parser.makeCollectionType(collectionType[0]);
+        await fs.appendFile(typeFile, typeText);
+      }
     } else if (type.TYPECODE === "PL/SQL RECORD") {
       const typeInfo = await db.getPackageTypeInfo(type.TYPE_NAME);
       const typeText = parser.makeRecordInterface(typeInfo);
@@ -92,8 +109,11 @@ async function parseOwnerType(typeFile: string, owner: string) {
   const types = await db.getAllOwnerTypes(owner);
   for (const type of types) {
     if (type.TYPECODE === "COLLECTION") {
-      const typeText = parser.makeCollectionType(type);
-      await fs.appendFile(typeFile, typeText);
+      const collectionType = await db.getCollectionTypeInfo(type.TYPE_NAME);
+      if (collectionType.length > 0) {
+        const typeText = parser.makeCollectionType(collectionType[0]);
+        await fs.appendFile(typeFile, typeText);
+      }
     } else if (type.TYPECODE === "OBJECT") {
       const typeInfo = await db.getOwnerTypeInfo(type.TYPE_NAME);
       const typeText = parser.makeRecordInterface(typeInfo);
@@ -116,4 +136,8 @@ async function parseProcs(file: string, packageName: string) {
       await fs.appendFile(file, func);
     }
   }
+}
+
+function getTypeName(name: string) {
+  return `${name.toUpperCase()}_TYPES`;
 }

@@ -10,7 +10,8 @@ import {
   OracleTypeInfo,
   OracleProcInfo,
   OracleProcParams,
-  TypeAttrInfo
+  OracleTypeAttrInfo,
+  OracleCollectionTypeInfo
 } from "./interfaces";
 
 export class DbManager {
@@ -62,13 +63,25 @@ export class DbManager {
   async getPackageTypeInfo(typeName: string) {
     const sql = `select * from all_plsql_type_attrs where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as TypeAttrInfo[];
+    return res.rows as OracleTypeAttrInfo[];
   }
 
   async getOwnerTypeInfo(typeName: string) {
     const sql = `select * from all_type_attrs where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as TypeAttrInfo[];
+    return res.rows as OracleTypeAttrInfo[];
+  }
+
+  async getCollectionTypeInfo(typeName: string) {
+    const sql = `select * from all_coll_types where type_name='${typeName.toUpperCase()}'`;
+    const res = await this.execute(sql);
+    return res.rows as OracleCollectionTypeInfo[];
+  }
+
+  async getPackageCollectionTypeInfo(typeName: string) {
+    const sql = `select * from all_plsql_coll_types where type_name='${typeName.toUpperCase()}'`;
+    const res = await this.execute(sql);
+    return res.rows as OracleCollectionTypeInfo[];
   }
 
   // Procedures
