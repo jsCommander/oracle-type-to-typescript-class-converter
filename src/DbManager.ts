@@ -7,11 +7,12 @@ import {
   BindParameters
 } from "oracledb";
 import {
-  OracleTypeInfo,
-  OracleProcInfo,
-  OracleProcParams,
-  OracleTypeAttrInfo,
-  OracleCollectionTypeInfo
+  TypeAttr,
+  CollectionType,
+  Procedure,
+  ProcedureParam,
+  PackageType,
+  SchemaType
 } from "./interfaces";
 
 export class DbManager {
@@ -46,16 +47,28 @@ export class DbManager {
 
   // All types
 
-  async getAllPackageTypes(packageName: string) {
-    const sql = `select * from all_plsql_types where package_name='${packageName.toUpperCase()}'`;
+  async getAllPackageObjectTypes(packageName: string) {
+    const sql = `select * from all_plsql_types where package_name='${packageName.toUpperCase()}' and typecode='PL/SQL RECORD'`;
     const res = await this.execute(sql);
-    return res.rows as OracleTypeInfo[];
+    return res.rows as PackageType[];
   }
 
-  async getAllOwnerTypes(owner: string) {
-    const sql = `select * from all_types where owner='${owner.toUpperCase()}'`;
+  async getAllPackageCollectionsTypes(packageName: string) {
+    const sql = `select * from all_plsql_types where package_name='${packageName.toUpperCase()}' and typecode='COLLECTION'`;
     const res = await this.execute(sql);
-    return res.rows as OracleTypeInfo[];
+    return res.rows as PackageType[];
+  }
+
+  async getAllOwnerObjectTypes(owner: string) {
+    const sql = `select * from all_types where owner='${owner.toUpperCase()}' and typecode='OBJECT'`;
+    const res = await this.execute(sql);
+    return res.rows as SchemaType[];
+  }
+
+  async getAllOwnerCollectionsTypes(owner: string) {
+    const sql = `select * from all_types where owner='${owner.toUpperCase()}' and typecode='COLLECTION'`;
+    const res = await this.execute(sql);
+    return res.rows as SchemaType[];
   }
 
   // Type info
@@ -63,25 +76,25 @@ export class DbManager {
   async getPackageTypeInfo(typeName: string) {
     const sql = `select * from all_plsql_type_attrs where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as OracleTypeAttrInfo[];
+    return res.rows as TypeAttr[];
   }
 
   async getOwnerTypeInfo(typeName: string) {
     const sql = `select * from all_type_attrs where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as OracleTypeAttrInfo[];
+    return res.rows as TypeAttr[];
   }
 
   async getCollectionTypeInfo(typeName: string) {
     const sql = `select * from all_coll_types where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as OracleCollectionTypeInfo[];
+    return res.rows as CollectionType[];
   }
 
   async getPackageCollectionTypeInfo(typeName: string) {
     const sql = `select * from all_plsql_coll_types where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as OracleCollectionTypeInfo[];
+    return res.rows as CollectionType[];
   }
 
   // Procedures
@@ -89,12 +102,12 @@ export class DbManager {
   async getAllPackageProcedures(packageName: string) {
     const sql = `select * from all_procedures where object_type='PACKAGE' and object_name='${packageName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as OracleProcInfo[];
+    return res.rows as Procedure[];
   }
 
   async getProcedureInfo(procName: string, packageName: string) {
     const sql = `select * from ALL_ARGUMENTS where package_name='${packageName.toUpperCase()}' and object_name='${procName.toUpperCase()}'`;
     const res = await this.execute(sql);
-    return res.rows as OracleProcParams[];
+    return res.rows as ProcedureParam[];
   }
 }

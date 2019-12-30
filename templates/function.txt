@@ -1,7 +1,0 @@
-
-export function {{name}}(input:{{input_type}}): OracleProcedureData {
-  const sql = {{sql}};
-  const binds: BindParameters = { {{binds}} };
-
-  return { binds, sql };
-}

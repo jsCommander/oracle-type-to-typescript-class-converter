@@ -1,4 +1,4 @@
-export interface OracleProcParams {
+export interface ProcedureParam {
   ARGUMENT_NAME: string;
   CHAR_LENGTH: number;
   CHAR_USED: string;
@@ -28,7 +28,7 @@ export interface OracleProcParams {
   TYPE_SUBNAME: string;
 }
 
-export interface OracleTypeInfo {
+export interface PackageType {
   ATTRIBUTES: string;
   CONTAINS_PLSQL: string;
   OWNER: string;
@@ -38,7 +38,23 @@ export interface OracleTypeInfo {
   TYPECODE: string;
 }
 
-export interface OracleProcInfo {
+export interface SchemaType {
+  TYPE_NAME: string;
+  TYPE_OID: Buffer;
+  TYPECODE: string;
+  FINAL: string;
+  INCOMPLETE: string;
+  INSTANTIABLE: string;
+  LOCAL_ATTRIBUTES: null;
+  LOCAL_METHODS: null;
+  METHODS: number;
+  OWNER: string;
+  PREDEFINED: string;
+  SUPERTYPE_NAME: null;
+  SUPERTYPE_OWNER: null;
+}
+
+export interface Procedure {
   INTERFACE: string;
   OBJECT_ID: number;
   OBJECT_NAME: string;
@@ -52,7 +68,7 @@ export interface OracleProcInfo {
   SUBPROGRAM_ID: number;
 }
 
-export interface OracleTypeAttrInfo {
+export interface TypeAttr {
   ATTR_NAME: string;
   ATTR_NO: number;
   ATTR_TYPE_MOD: string;
@@ -68,8 +84,7 @@ export interface OracleTypeAttrInfo {
   SCALE: string;
   TYPE_NAME: string;
 }
-
-export interface OracleCollectionTypeInfo {
+export interface CollectionType {
   CHAR_USED: string;
   CHARACTER_SET_NAME: null;
   COLL_TYPE: string;
@@ -88,5 +103,3 @@ export interface OracleCollectionTypeInfo {
   TYPE_NAME: string;
   UPPER_BOUND: null;
 }
-
-export type TypeInfoParseFn = (typeName: string) => TypeAttrInfo[];
