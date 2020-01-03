@@ -85,7 +85,7 @@ export class DbManager {
     return res.rows as TypeAttr[];
   }
 
-  async getCollectionTypeInfo(typeName: string) {
+  async getOwnerCollectionTypeInfo(typeName: string) {
     const sql = `select * from all_coll_types where type_name='${typeName.toUpperCase()}'`;
     const res = await this.execute(sql);
     return res.rows as CollectionType[];

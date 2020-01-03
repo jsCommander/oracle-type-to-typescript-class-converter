@@ -5,7 +5,11 @@ import {
   Procedure,
   CollectionType,
   PackageType,
-  SchemaType
+  SchemaType,
+  SchemaTypeInfo,
+  PackageTypeInfo,
+  SchemaCollectionTypeInfo,
+  PackageCollectionTypeInfo
 } from "./interfaces";
 import {
   baseTemplate,
@@ -73,28 +77,44 @@ export class Maker {
     enumText = enumText.replace("{{name}}", name);
     enumText = enumText.replace("{{fields}}", fields.join(","));
 
+    console.log("maker: create procedures enum");
     return enumText;
   }
 
-  makeRecordInterface(typeInfo: TypeAttr[]) {
-    const name = typeInfo[0].TYPE_NAME;
+  makeTypeClass(type: SchemaTypeInfo | PackageTypeInfo) {
     const fields: string[] = [];
-    for (const type of typeInfo) {
-      const jsType = this.oracleTypeToTsType(type.ATTR_TYPE_NAME);
+    const name = type.typeInfo.TYPE_NAME;
+    for (const attr of type.attrs) {
+      const jsType = this.oracleTypeToTsType(attr.ATTR_TYPE_NAME);
       const swaggerInfo = "@ApiProperty()";
-      const field = `${swaggerInfo} ${type.ATTR_NAME}:${jsType};`;
+      const field = `${swaggerInfo} ${attr.ATTR_NAME}:${jsType};`;
       fields.push(field);
     }
 
     let typeInterface = this.classTemplate;
     typeInterface = typeInterface.replace("{{name}}", name);
     typeInterface = typeInterface.replace("{{fields}}", fields.join(""));
+
+    console.log(`maker: create class for ${name}`);
     return typeInterface;
   }
 
-  makeCollectionType(type: CollectionType) {
-    const jsType = this.oracleTypeToTsType(type.ELEM_TYPE_NAME);
-    return `\nexport type ${type.TYPE_NAME} = ${jsType}[];\n`;
+  makeCollectionType(
+    type: SchemaCollectionTypeInfo | PackageCollectionTypeInfo
+  ) {
+    const name = type.typeInfo.TYPE_NAME;
+    const jsType = this.oracleTypeToTsType(type.collectionInfo.ELEM_TYPE_NAME);
+
+    let typeInterface = this.classTemplate;
+
+    const swaggerInfo = `@ApiProperty( { type: [${jsType}] })`;
+    const field = `${swaggerInfo} ${name}:${jsType}[];`;
+
+    typeInterface = typeInterface.replace("{{name}}", name);
+    typeInterface = typeInterface.replace("{{fields}}", field);
+
+    console.log(`maker: create class for ${name}`);
+    return typeInterface;
   }
 
   makeFunction(procParams: ProcedureParam[]) {
@@ -198,15 +218,15 @@ export class Maker {
 
   private oracleTypeToTsType(oracleType: string) {
     if (oracleType === "NUMBER") {
-      return "number";
+      return "Number";
     }
     if (oracleType.includes("VARCHAR")) {
-      return "string";
+      return "String";
     }
     if (oracleType.includes("DATE")) {
-      return "string";
+      return "String";
     }
 
-    return oracleType.toUpperCase();
+    return oracleType;
   }
 }

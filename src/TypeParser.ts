@@ -6,58 +6,23 @@ import {
   ProcedureParam,
   Procedure,
   PackageType,
-  SchemaType
+  SchemaType,
+  ProcedureMetaData,
+  SchemaTypesMetaData,
+  PackageTypesMetaData,
+  Types,
+  SchemaTypeInfo,
+  PackageTypeInfo,
+  SchemaCollectionTypeInfo,
+  PackageCollectionTypeInfo
 } from "./interfaces";
 import { PoolAttributes } from "oracledb";
 import { promises as fs } from "fs";
 import { join } from "path";
 
-export interface ParseOptions {
-  packageTypes: string[];
-  schemaTypes: string[];
-  packageProcedures: string[];
-}
-
-export interface PackageTypesMetaData {
-  [pack: string]: {
-    records: {
-      [record: string]: {
-        typeInfo?: PackageType;
-        attrs?: TypeAttr[];
-      };
-    };
-    collections: {
-      [collection: string]: {
-        typeInfo?: PackageType;
-        collectionInfo?: CollectionType;
-      };
-    };
-  };
-}
-
-export interface SchemaTypesMetaData {
-  [schema: string]: {
-    records: {
-      [record: string]: {
-        typeInfo?: SchemaType;
-        attrs?: TypeAttr[];
-      };
-    };
-    collections: {
-      [collection: string]: {
-        typeInfo?: SchemaType;
-        collectionInfo?: CollectionType;
-      };
-    };
-  };
-}
-
 export class TypeParser {
   private db: DbManager;
   private maker: Maker;
-
-  private packages: PackageTypesMetaData;
-  private schemas: SchemaTypesMetaData;
 
   constructor(connectString: string, user: string, password: string) {
     const dbConfig: PoolAttributes = {
@@ -83,84 +48,128 @@ export class TypeParser {
     this.maker = new Maker();
   }
 
-  async parse(options: ParseOptions, outputFile: string) {
+  async parse(packageName: string, outputFile: string) {
     const fileName = join("./output", outputFile);
-    console.log("parsing: start parsing types");
-    const { packageTypes, packageProcedures, schemaTypes } = options;
 
-    this.resetMetaData();
+    const {
+      procedures,
+      schemas,
+      packages
+    } = await this.parsePackageProcedureInfo(packageName);
 
-    this.schemas = await this.parseSchemaTypes(schemaTypes);
-    this.packages = await this.parsePackageTypes(packageTypes);
+    await this.parseSchemaTypes(schemas);
+    await this.parsePackageTypes(packages);
 
-    await this.parseSchemaTypesInfo(this.schemas);
-    await this.parsePackageTypesInfo(this.packages);
+    await this.parseSchemaTypesInfo(schemas);
+    await this.parsePackageTypesInfo(packages);
 
     try {
       await fs.writeFile(fileName, this.maker.getBase());
-      await this.writeSchemaEnums(this.schemas, fileName);
-      await this.writePackageEnums(this.packages, fileName);
+      await this.writeSchemaEnums(schemas, fileName);
+      await this.writePackageEnums(packages, fileName);
+      await this.writeProcedureEnums(procedures, fileName);
+      await this.writeTypesClass(schemas, packages, fileName);
     } catch (err) {
       console.log(err);
     }
   }
 
-  async writePackageEnums(packages: PackageTypesMetaData, outputFile: string) {
-    for (const pack of Object.keys(packages)) {
-      const collections = Object.keys(packages[pack].collections);
-      const records = Object.keys(packages[pack].records);
+  async parsePackageProcedureInfo(packageName: string) {
+    console.log(
+      `parser: start to parse procedure info from package ${packageName}`
+    );
+    const proceduresInfo = await this.db.getAllPackageProcedures(packageName);
+    console.log(
+      `parser: found ${proceduresInfo.length} procedures in package ${packageName}`
+    );
+    const promises = [];
+    const procedures: ProcedureMetaData = {};
 
-      const typeInfo: PackageType[] = [];
-
-      collections.forEach(x => {
-        typeInfo.push(packages[pack].collections[x].typeInfo);
-      });
-      records.forEach(x => {
-        typeInfo.push(packages[pack].records[x].typeInfo);
-      });
-
-      const enumStr = this.maker.makePackageTypesEnum(pack, typeInfo);
-      await fs.appendFile(outputFile, enumStr);
+    const schemas: SchemaTypesMetaData = {};
+    const packages: PackageTypesMetaData = {};
+    for (const proc of proceduresInfo) {
+      if (!proc.PROCEDURE_NAME) {
+        continue;
+      }
+      procedures[proc.PROCEDURE_NAME] = {
+        procedureInfo: proc
+      };
+      const promise = this.db
+        .getProcedureInfo(proc.PROCEDURE_NAME, packageName)
+        .then(params => {
+          console.log(
+            `parser: found procedure ${proc.PROCEDURE_NAME} params info`
+          );
+          procedures[proc.PROCEDURE_NAME].paramsInfo = params;
+          this.fillTypesFromParams(params, packages, schemas);
+        });
+      promises.push(promise);
     }
+
+    await Promise.all(promises);
+
+    return { procedures, schemas, packages };
   }
 
-  async writeSchemaEnums(schemas: SchemaTypesMetaData, outputFile: string) {
-    for (const schema of Object.keys(schemas)) {
-      const collections = Object.keys(schemas[schema].collections);
-      const records = Object.keys(schemas[schema].records);
+  fillTypesFromParams(
+    params: ProcedureParam[],
+    packages: PackageTypesMetaData,
+    schemas: SchemaTypesMetaData
+  ) {
+    for (const param of params) {
+      if (param.TYPE_SUBNAME) {
+        if (!packages[param.TYPE_NAME]) {
+          packages[param.TYPE_NAME] = {
+            types: {}
+          };
+        }
 
-      const typeInfo: SchemaType[] = [];
+        packages[param.TYPE_NAME].types[param.TYPE_SUBNAME] = {};
+      } else if (param.TYPE_OWNER) {
+        // TODO пока не ясно как понять, где лежат типы из схемы PUBLIC, так как это по сути алиас.
+        const owner =
+          param.TYPE_OWNER === "PUBLIC" ? "SMASTER" : param.TYPE_OWNER;
+        if (!schemas[owner]) {
+          schemas[owner] = {
+            types: {}
+          };
+        }
 
-      collections.forEach(x => {
-        typeInfo.push(schemas[schema].collections[x].typeInfo);
-      });
-      records.forEach(x => {
-        typeInfo.push(schemas[schema].records[x].typeInfo);
-      });
-
-      const enumStr = this.maker.makeSchemaTypesEnum(schema, typeInfo);
-      await fs.appendFile(outputFile, enumStr);
+        schemas[owner].types[param.TYPE_NAME] = {};
+      }
     }
   }
 
   async parseSchemaTypesInfo(schemas: SchemaTypesMetaData) {
     for (const schema of Object.keys(schemas)) {
+      const types = Object.keys(schemas[schema].types);
       const promises = [];
-      const collections = Object.keys(schemas[schema].collections);
-      const records = Object.keys(schemas[schema].records);
-      for (const coll of collections) {
-        const promise = this.db.getCollectionTypeInfo(coll).then(info => {
-          console.log(`found: collection type ${schema}.${coll} details`);
-          schemas[schema].collections[coll].collectionInfo = info[0];
-        });
-        promises.push(promise);
-      }
+      for (const type of types) {
+        const currType = schemas[schema].types[type];
+        let promise: Promise<void>;
+        switch (currType.type) {
+          case Types.SCHEMA_COLLECTION_TYPE:
+            promise = this.db.getOwnerCollectionTypeInfo(type).then(info => {
+              console.log(
+                `parser: found collection type ${schema}.${type} details`
+              );
+              currType.collectionInfo = info[0];
+            });
+            break;
 
-      for (const record of records) {
-        const promise = this.db.getOwnerTypeInfo(record).then(info => {
-          console.log(`found: record type ${schema}.${record} details`);
-          schemas[schema].records[record].attrs = info;
-        });
+          case Types.SCHEMA_TYPE:
+            promise = this.db.getOwnerTypeInfo(type).then(info => {
+              console.log(
+                `parser: found object type ${schema}.${type} details`
+              );
+              currType.attrs = info;
+            });
+            break;
+
+          default:
+            break;
+        }
+
         promises.push(promise);
       }
 
@@ -170,22 +179,32 @@ export class TypeParser {
 
   async parsePackageTypesInfo(packages: PackageTypesMetaData) {
     for (const pack of Object.keys(packages)) {
+      const types = Object.keys(packages[pack].types);
       const promises = [];
-      const collections = Object.keys(packages[pack].collections);
-      const records = Object.keys(packages[pack].records);
-      for (const coll of collections) {
-        const promise = this.db.getCollectionTypeInfo(coll).then(info => {
-          console.log(`found: collection type ${pack}.${coll} details`);
-          packages[pack].collections[coll].collectionInfo = info[0];
-        });
-        promises.push(promise);
-      }
+      for (const type of types) {
+        const currType = packages[pack].types[type];
+        let promise: Promise<void>;
+        switch (currType.type) {
+          case Types.PACKAGE_COLLECTION_TYPE:
+            promise = this.db.getPackageCollectionTypeInfo(type).then(info => {
+              console.log(
+                `parser: found collection type ${pack}.${type} details`
+              );
+              currType.collectionInfo = info[0];
+            });
+            break;
 
-      for (const record of records) {
-        const promise = this.db.getOwnerTypeInfo(record).then(info => {
-          console.log(`found: record type ${pack}.${record} details`);
-          packages[pack].records[record].attrs = info;
-        });
+          case Types.PACKAGE_TYPE:
+            promise = this.db.getPackageTypeInfo(type).then(info => {
+              console.log(`parser: found object type ${pack}.${type} details`);
+              currType.attrs = info;
+            });
+            break;
+
+          default:
+            break;
+        }
+
         promises.push(promise);
       }
 
@@ -193,197 +212,166 @@ export class TypeParser {
     }
   }
 
-  async parseSchemaTypes(schemas: string[]) {
-    const output: SchemaTypesMetaData = {};
-    for (const schema of schemas) {
-      output[schema] = {
-        records: {},
-        collections: {}
-      };
-      console.log(`parsing: schema ${schema} types`);
+  async parseSchemaTypes(schemas: SchemaTypesMetaData) {
+    for (const schema of Object.keys(schemas)) {
+      console.log(`parser: start to parse schema ${schema} types`);
       const records = await this.db.getAllOwnerObjectTypes(
         schema.toUpperCase()
       );
       for (const rec of records) {
-        output[schema].records[rec.TYPE_NAME] = {};
-        output[schema].records[rec.TYPE_NAME].typeInfo = rec;
+        const currSchema = schemas[schema].types[rec.TYPE_NAME];
+        if (!currSchema) {
+          continue;
+        }
+        currSchema.type = Types.SCHEMA_TYPE;
+        currSchema.typeInfo = rec;
+        console.log(`parser: found ${rec.TYPE_NAME} object type info`);
       }
-      console.log(`found: ${records.length} record types in schema ${schema} `);
 
       const colls = await this.db.getAllOwnerCollectionsTypes(
         schema.toUpperCase()
       );
       for (const coll of colls) {
-        output[schema].collections[coll.TYPE_NAME] = {};
-        output[schema].collections[coll.TYPE_NAME].typeInfo = coll;
+        const currSchema = schemas[schema].types[coll.TYPE_NAME];
+        if (!currSchema) {
+          continue;
+        }
+        currSchema.type = Types.SCHEMA_COLLECTION_TYPE;
+        currSchema.typeInfo = coll;
+        console.log(`parser: found ${coll.TYPE_NAME} collection type info`);
       }
-      console.log(
-        `found: ${colls.length} collection types in schema ${schema} `
-      );
     }
-    return output;
   }
 
-  async parsePackageTypes(packages: string[]) {
-    const output: PackageTypesMetaData = {};
-    for (const pack of packages) {
-      output[pack] = {
-        records: {},
-        collections: {}
-      };
-      console.log(`parsing: package ${pack} types`);
+  async parsePackageTypes(packages: PackageTypesMetaData) {
+    for (const pack of Object.keys(packages)) {
+      console.log(`parser: start to parse schema ${pack} types`);
       const records = await this.db.getAllPackageObjectTypes(
         pack.toUpperCase()
       );
       for (const rec of records) {
-        output[pack].records[rec.TYPE_NAME] = {};
-        output[pack].records[rec.TYPE_NAME].typeInfo = rec;
+        const currSchema = packages[pack].types[rec.TYPE_NAME];
+        if (!currSchema) {
+          continue;
+        }
+        currSchema.type = Types.PACKAGE_TYPE;
+        currSchema.typeInfo = rec;
+        console.log(`parser: found ${rec.TYPE_NAME} object type info`);
       }
-      console.log(`found: ${records.length} record types in package ${pack} `);
 
       const colls = await this.db.getAllPackageCollectionsTypes(
         pack.toUpperCase()
       );
       for (const coll of colls) {
-        output[pack].collections[coll.TYPE_NAME] = {};
-        output[pack].collections[coll.TYPE_NAME].typeInfo = coll;
+        const currSchema = packages[pack].types[coll.TYPE_NAME];
+        if (!currSchema) {
+          continue;
+        }
+        currSchema.type = Types.PACKAGE_COLLECTION_TYPE;
+        currSchema.typeInfo = coll;
+        console.log(`parser: found ${coll.TYPE_NAME} collection type info`);
       }
-      console.log(`found: ${colls.length} collection types in package ${pack}`);
     }
-    return output;
   }
 
-  resetMetaData() {
-    this.packages = {};
-    this.schemas = {};
+  async writePackageEnums(packages: PackageTypesMetaData, outputFile: string) {
+    for (const pack of Object.keys(packages)) {
+      const types = Object.keys(packages[pack].types);
+
+      const typeInfo: PackageType[] = [];
+
+      types.forEach(x => {
+        const currType = packages[pack].types[x];
+        if (currType.typeInfo) {
+          typeInfo.push(currType.typeInfo);
+        }
+      });
+
+      const enumStr = this.maker.makePackageTypesEnum(pack, typeInfo);
+      await fs.appendFile(outputFile, enumStr);
+    }
   }
 
-  // async parseOwnerType(owner: string) {
-  //   const types = await this.db.getAllOwnerTypes(owner);
+  async writeProcedureEnums(procedures: ProcedureMetaData, outputFile: string) {
+    const procs = Object.keys(procedures);
 
-  //   const collectionsPromise = types
-  //     .filter(type => type.TYPECODE === "COLLECTION")
-  //     .map(async type => {
-  //       const collectionType = await this.db.getCollectionTypeInfo(
-  //         type.TYPE_NAME
-  //       );
-  //       if (collectionType.length > 0) {
-  //         this.collectionsAttrs[type.TYPE_NAME] = collectionType[0];
-  //       }
-  //     });
-  //   const objectsPromise = types
-  //     .filter(type => type.TYPECODE === "OBJECT")
-  //     .map(async type => {
-  //       const typeInfo = await this.db.getOwnerTypeInfo(type.TYPE_NAME);
-  //       this.typesAttrs[type.TYPE_NAME] = typeInfo;
-  //     });
+    const procsInfo: Procedure[] = [];
 
-  //   await Promise.all(objectsPromise);
-  //   await Promise.all(collectionsPromise);
-  // }
+    procs.forEach(x => {
+      procsInfo.push(procedures[x].procedureInfo);
+    });
 
-  //   async function main() {
-  //     const base = await fs.readFile("./templates/base.ts", "utf8");
+    const enumStr = this.maker.makeProcsEnum("PROCEDURES", procsInfo);
+    await fs.appendFile(outputFile, enumStr);
+  }
 
-  //     await fs.writeFile(outputFile, base);
+  async writeSchemaEnums(schemas: SchemaTypesMetaData, outputFile: string) {
+    for (const schema of Object.keys(schemas)) {
+      const types = Object.keys(schemas[schema].types);
 
-  //     await parseEnums(outputFile, packageName, owner);
-  //     await parsePackageType(outputFile, packageName);
-  //     await parseOwnerType(outputFile, owner);
-  //     await parseOwnerType(outputFile, "SMASTER");
+      const typeInfo: SchemaType[] = [];
 
-  //     await parseProcs(outputFile, packageName);
-  //   }
+      types.forEach(x => {
+        const currType = schemas[schema].types[x];
+        if (currType.typeInfo) {
+          typeInfo.push(currType.typeInfo);
+        }
+      });
 
-  //   main();
+      const enumStr = this.maker.makeSchemaTypesEnum(schema, typeInfo);
+      await fs.appendFile(outputFile, enumStr);
+    }
+  }
 
-  //   async function parseEnums(
-  //     enumFile: string,
-  //     packageName: string,
-  //     owner: string
-  //   ) {
-  //     // Package type enums
-  //     const packageTypes = await db.getAllPackageTypes(packageName);
-  //     const packageEnum = parser.makeTypesEnum(
-  //       getTypeName(packageName),
-  //       packageTypes
-  //     );
-  //     await fs.appendFile(enumFile, packageEnum);
+  async writeTypesClass(
+    schemas: SchemaTypesMetaData,
+    packages: PackageTypesMetaData,
+    outputFile: string
+  ) {
+    // Чтобы избежать ошибок "Class 'x' used before its declaration"
+    // нужно сначала записать все объектные типы, а только потом коллекционные
+    const objectTypes: (SchemaTypeInfo | PackageTypeInfo)[] = [];
+    const collectionTypes: (
+      | SchemaCollectionTypeInfo
+      | PackageCollectionTypeInfo
+    )[] = [];
 
-  //     // Owner type enums
-  //     const ownerTypes = await db.getAllOwnerTypes(owner);
-  //     const ownerEnum = parser.makeTypesEnum(getTypeName(owner), ownerTypes);
-  //     await fs.appendFile(enumFile, ownerEnum);
+    for (const name of Object.keys(schemas)) {
+      const types = Object.keys(schemas[name].types);
 
-  //     // smaster type enums
-  //     const smasterTypes = await db.getAllOwnerTypes("SMASTER");
-  //     const smasterEnum = parser.makeTypesEnum(
-  //       getTypeName("SMASTER"),
-  //       smasterTypes
-  //     );
-  //     await fs.appendFile(enumFile, smasterEnum);
+      for (const type of types) {
+        const currType = schemas[name].types[type];
+        if (currType.type === Types.SCHEMA_TYPE) {
+          objectTypes.push(currType);
+        } else if (currType.type === Types.SCHEMA_COLLECTION_TYPE) {
+          collectionTypes.push(currType);
+        }
+      }
+    }
 
-  //     // Package procedures enums
-  //     const packageProcs = await db.getAllPackageProcedures(packageName);
-  //     const typesEnum = parser.makeProcsEnum("PACKAGE_PROCEDURES", packageProcs);
-  //     await fs.appendFile(enumFile, typesEnum);
-  //   }
+    for (const name of Object.keys(packages)) {
+      const types = Object.keys(packages[name].types);
 
-  //   async function parsePackageType(typeFile: string, packageName: string) {
-  //     const types = await db.getAllPackageTypes(packageName);
-  //     for (const type of types) {
-  //       if (type.TYPECODE === "COLLECTION") {
-  //         const collectionType = await db.getPackageCollectionTypeInfo(
-  //           type.TYPE_NAME
-  //         );
-  //         if (collectionType.length > 0) {
-  //           const typeText = parser.makeCollectionType(collectionType[0]);
-  //           await fs.appendFile(typeFile, typeText);
-  //         }
-  //       } else if (type.TYPECODE === "PL/SQL RECORD") {
-  //         const typeInfo = await db.getPackageTypeInfo(type.TYPE_NAME);
-  //         const typeText = parser.makeRecordInterface(typeInfo);
-  //         await fs.appendFile(typeFile, typeText);
-  //       } else {
-  //         console.log("found unknown type: %j", type);
-  //       }
-  //     }
-  //   }
+      for (const type of types) {
+        const currType = packages[name].types[type];
+        if (currType.type === Types.PACKAGE_TYPE) {
+          objectTypes.push(currType);
+        } else if (currType.type === Types.PACKAGE_COLLECTION_TYPE) {
+          collectionTypes.push(currType);
+        }
+      }
+    }
 
-  //   async function parseOwnerType(typeFile: string, owner: string) {
-  //     const types = await db.getAllOwnerTypes(owner);
-  //     for (const type of types) {
-  //       if (type.TYPECODE === "COLLECTION") {
-  //         const collectionType = await db.getCollectionTypeInfo(type.TYPE_NAME);
-  //         if (collectionType.length > 0) {
-  //           const typeText = parser.makeCollectionType(collectionType[0]);
-  //           await fs.appendFile(typeFile, typeText);
-  //         }
-  //       } else if (type.TYPECODE === "OBJECT") {
-  //         const typeInfo = await db.getOwnerTypeInfo(type.TYPE_NAME);
-  //         const typeText = parser.makeRecordInterface(typeInfo);
-  //         await fs.appendFile(typeFile, typeText);
-  //       } else {
-  //         console.log("found unknown type: %j", type);
-  //       }
-  //     }
-  //   }
+    for (const type of objectTypes) {
+      const typeClassStr = this.maker.makeTypeClass(type);
 
-  //   async function parseProcs(file: string, packageName: string) {
-  //     const procs = await db.getAllPackageProcedures(packageName);
-  //     for (const proc of procs) {
-  //       if (proc.PROCEDURE_NAME) {
-  //         const procInfo = await db.getProcedureInfo(
-  //           proc.PROCEDURE_NAME,
-  //           packageName
-  //         );
-  //         const func = parser.makeFunction(procInfo);
-  //         await fs.appendFile(file, func);
-  //       }
-  //     }
-  //   }
+      await fs.appendFile(outputFile, typeClassStr);
+    }
 
-  private getTypeName(name: string) {
-    return `${name.toUpperCase()}_TYPES`;
+    for (const type of collectionTypes) {
+      const typeClassStr = this.maker.makeCollectionType(type);
+
+      await fs.appendFile(outputFile, typeClassStr);
+    }
   }
 }

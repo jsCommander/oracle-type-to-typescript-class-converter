@@ -103,3 +103,53 @@ export interface CollectionType {
   TYPE_NAME: string;
   UPPER_BOUND: null;
 }
+
+export enum Types {
+  SCHEMA_COLLECTION_TYPE,
+  PACKAGE_COLLECTION_TYPE,
+  PACKAGE_TYPE,
+  SCHEMA_TYPE
+}
+
+export interface PackageCollectionTypeInfo {
+  type?: Types.PACKAGE_COLLECTION_TYPE;
+  typeInfo?: PackageType;
+  collectionInfo?: CollectionType;
+}
+
+export interface SchemaCollectionTypeInfo {
+  type?: Types.SCHEMA_COLLECTION_TYPE;
+  typeInfo?: SchemaType;
+  collectionInfo?: CollectionType;
+}
+
+export interface PackageTypeInfo {
+  type?: Types.PACKAGE_TYPE;
+  typeInfo?: PackageType;
+  attrs?: TypeAttr[];
+}
+
+export interface SchemaTypeInfo {
+  type?: Types.SCHEMA_TYPE;
+  typeInfo?: SchemaType;
+  attrs?: TypeAttr[];
+}
+
+export interface PackageTypesMetaData {
+  [pack: string]: {
+    types: { [type: string]: PackageTypeInfo | PackageCollectionTypeInfo };
+  };
+}
+
+export interface SchemaTypesMetaData {
+  [schema: string]: {
+    types: { [type: string]: SchemaTypeInfo | SchemaCollectionTypeInfo };
+  };
+}
+
+export interface ProcedureMetaData {
+  [procedure: string]: {
+    procedureInfo?: Procedure;
+    paramsInfo?: ProcedureParam[];
+  };
+}
