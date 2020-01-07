@@ -20,6 +20,7 @@ export interface ProcedureParam {
   PLS_TYPE: string;
   POSITION: number;
   RADIX: string;
+  ProcedureParam;
   SEQUENCE: string;
   SUBPROGRAM_ID: string;
   TYPE_LINK: string;
@@ -135,6 +136,17 @@ export interface SchemaTypeInfo {
   attrs?: TypeAttr[];
 }
 
+export type TypeInfo =
+  | SchemaCollectionTypeInfo
+  | SchemaTypeInfo
+  | PackageCollectionTypeInfo
+  | PackageTypeInfo;
+
+export interface ProcedureInfo {
+  procedureInfo?: Procedure;
+  paramsInfo?: ProcedureParam[];
+}
+
 export interface PackageTypesMetaData {
   [pack: string]: {
     types: { [type: string]: PackageTypeInfo | PackageCollectionTypeInfo };
@@ -144,12 +156,10 @@ export interface PackageTypesMetaData {
 export interface SchemaTypesMetaData {
   [schema: string]: {
     types: { [type: string]: SchemaTypeInfo | SchemaCollectionTypeInfo };
+    packages: PackageTypesMetaData;
   };
 }
 
 export interface ProcedureMetaData {
-  [procedure: string]: {
-    procedureInfo?: Procedure;
-    paramsInfo?: ProcedureParam[];
-  };
+  [procedure: string]: ProcedureInfo;
 }

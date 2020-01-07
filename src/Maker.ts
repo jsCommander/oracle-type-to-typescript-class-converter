@@ -9,7 +9,12 @@ import {
   SchemaTypeInfo,
   PackageTypeInfo,
   SchemaCollectionTypeInfo,
-  PackageCollectionTypeInfo
+  PackageCollectionTypeInfo,
+  ProcedureMetaData,
+  ProcedureInfo,
+  SchemaTypesMetaData,
+  TypeInfo,
+  Types
 } from "./interfaces";
 import {
   baseTemplate,
@@ -81,12 +86,38 @@ export class Maker {
     return enumText;
   }
 
-  makeTypeClass(type: SchemaTypeInfo | PackageTypeInfo) {
+  makeTypeClass(
+    type: SchemaTypeInfo | PackageTypeInfo,
+    schemas: SchemaTypesMetaData
+  ) {
     const fields: string[] = [];
     const name = type.typeInfo.TYPE_NAME;
     for (const attr of type.attrs) {
-      const jsType = this.oracleTypeToTsType(attr.ATTR_TYPE_NAME);
-      const swaggerInfo = "@ApiProperty()";
+      let jsType = this.oracleTypeToTsType(attr.ATTR_TYPE_NAME);
+      let swaggerInfo = "@ApiProperty()";
+      if (attr.ATTR_TYPE_OWNER) {
+        const schema = schemas[attr.ATTR_TYPE_OWNER];
+        let typeInfo: TypeInfo;
+        if (attr.ATTR_TYPE_PACKAGE) {
+          typeInfo =
+            schema.packages[attr.ATTR_TYPE_PACKAGE].types[attr.ATTR_TYPE_NAME];
+        } else {
+          typeInfo = schema.types[attr.ATTR_TYPE_NAME];
+        }
+        if (
+          typeInfo.type === Types.PACKAGE_COLLECTION_TYPE ||
+          typeInfo.type === Types.SCHEMA_COLLECTION_TYPE
+        ) {
+          jsType =
+            this.oracleTypeToTsType(typeInfo.collectionInfo.ELEM_TYPE_NAME) +
+            "[]";
+          const swaggerType = this.oracleTypeToSwaggerType(
+            typeInfo.collectionInfo.ELEM_TYPE_NAME
+          );
+          swaggerInfo = `@ApiProperty( { type: [${swaggerType}] })`;
+        }
+      }
+
       const field = `${swaggerInfo} ${attr.ATTR_NAME}:${jsType};`;
       fields.push(field);
     }
@@ -104,75 +135,109 @@ export class Maker {
   ) {
     const name = type.typeInfo.TYPE_NAME;
     const jsType = this.oracleTypeToTsType(type.collectionInfo.ELEM_TYPE_NAME);
-
-    let typeInterface = this.classTemplate;
-
-    const swaggerInfo = `@ApiProperty( { type: [${jsType}] })`;
-    const field = `${swaggerInfo} ${name}:${jsType}[];`;
-
-    typeInterface = typeInterface.replace("{{name}}", name);
-    typeInterface = typeInterface.replace("{{fields}}", field);
+    const typeInterface = `export type ${name} = ${jsType}[];`;
 
     console.log(`maker: create class for ${name}`);
     return typeInterface;
   }
 
-  makeFunction(procParams: ProcedureParam[]) {
-    const sorted = procParams.sort((a, b) => a.POSITION - b.POSITION);
-    const { PACKAGE_NAME, OBJECT_NAME } = sorted[0];
+  makeFunction(schemas: SchemaTypesMetaData, procedureInfo: ProcedureInfo) {
+    const params = procedureInfo.paramsInfo;
+    const { PACKAGE_NAME, OBJECT_NAME } = params[0];
 
     const functionName = OBJECT_NAME;
-    const inputInterfaceName = `${OBJECT_NAME}_INPUT`;
-    const outputInterfaceName = `${OBJECT_NAME}_OUTPUT`;
-
-    const inputParams: string[] = [];
-    const outputParams: string[] = [];
+    const inputClassName = `${OBJECT_NAME}_INPUT`;
 
     const sqlParam: string[] = [];
     const bindsParams: string[] = [];
 
-    for (const param of sorted) {
+    for (const param of params) {
       if (param.ARGUMENT_NAME && param.DATA_LEVEL === 0) {
         sqlParam.push(`:${param.ARGUMENT_NAME}`);
-        const jsType = this.getProcParamType(param);
-        const def = param.DEFAULTED === "Y" ? "?" : "";
-
-        if (param.IN_OUT === "IN") {
-          const inputParam = `${param.ARGUMENT_NAME}${def}: ${jsType}`;
-          inputParams.push(inputParam);
-        } else if (param.IN_OUT === "OUT") {
-          const outputParam = `${param.ARGUMENT_NAME}: ${jsType}`;
-          outputParams.push(outputParam);
-        }
-
         bindsParams.push(this.makeBindParam(param));
       }
     }
 
-    let functionText = this.functionTemplate;
-    functionText = functionText.replace("{{name}}", functionName);
-    functionText = functionText.replace("{{input_type}}", inputInterfaceName);
-    functionText = functionText.replace(
+    let paramStr = this.makeFunctionParamClass(schemas, procedureInfo);
+
+    let functionStr = this.functionTemplate;
+    functionStr = functionStr.replace("{{name}}", functionName);
+    functionStr = functionStr.replace("{{input_type}}", inputClassName);
+    functionStr = functionStr.replace(
       "{{sql}}",
       `"CALL ${PACKAGE_NAME}.${OBJECT_NAME}(${sqlParam.join(",")})"`
     );
-    functionText = functionText.replace("{{binds}}", bindsParams.join(","));
+    functionStr = functionStr.replace("{{binds}}", bindsParams.join(","));
 
-    let inputInterface = this.classTemplate;
-    inputInterface = inputInterface.replace("{{name}}", inputInterfaceName);
-    inputInterface = inputInterface.replace(
-      "{{fields}}",
-      inputParams.join(";")
-    );
+    return paramStr + functionStr;
+  }
 
-    let outputInterface = this.classTemplate;
-    outputInterface = outputInterface.replace("{{name}}", outputInterfaceName);
-    outputInterface = outputInterface.replace(
-      "{{fields}}",
-      outputParams.join(";")
-    );
+  private makeFunctionParamClass(
+    schemas: SchemaTypesMetaData,
+    procedureInfo: ProcedureInfo
+  ) {
+    const params = procedureInfo.paramsInfo;
+    const { OBJECT_NAME } = procedureInfo.paramsInfo[0];
+    const inputClassName = `${OBJECT_NAME}_INPUT`;
+    const outputClassName = `${OBJECT_NAME}_OUTPUT`;
+    const inputParams: string[] = [];
+    const outputParams: string[] = [];
 
-    return inputInterface + outputInterface + functionText;
+    for (const param of params) {
+      if (param.ARGUMENT_NAME && param.DATA_LEVEL === 0) {
+        let jsType = this.getProcParamType(param);
+        const isDefault = param.DEFAULTED === "Y";
+        let swaggerInfo = isDefault
+          ? "@ApiPropertyOptional()"
+          : "@ApiProperty()";
+
+        if (param.TYPE_OWNER) {
+          const owner =
+            param.TYPE_OWNER === "PUBLIC" ? "SMASTER" : param.TYPE_OWNER;
+          const schema = schemas[owner];
+          let typeInfo: TypeInfo;
+          if (param.TYPE_SUBNAME) {
+            typeInfo =
+              schema.packages[param.TYPE_NAME].types[param.TYPE_SUBNAME];
+          } else {
+            typeInfo = schema.types[param.TYPE_NAME];
+          }
+          if (
+            typeInfo.type === Types.PACKAGE_COLLECTION_TYPE ||
+            typeInfo.type === Types.SCHEMA_COLLECTION_TYPE
+          ) {
+            const swaggerType = this.oracleTypeToSwaggerType(
+              typeInfo.collectionInfo.ELEM_TYPE_NAME
+            );
+            jsType =
+              this.oracleTypeToTsType(typeInfo.collectionInfo.ELEM_TYPE_NAME) +
+              "[]";
+            swaggerInfo = isDefault
+              ? `@ApiPropertyOptional( { type: [${swaggerType}] })`
+              : `@ApiProperty( { type: [${swaggerType}] })`;
+          }
+        }
+
+        const def = isDefault ? "?" : "";
+        const paramStr = `${swaggerInfo} ${param.ARGUMENT_NAME}${def}: ${jsType}`;
+
+        if (param.IN_OUT === "IN") {
+          inputParams.push(paramStr);
+        } else if (param.IN_OUT === "OUT") {
+          outputParams.push(paramStr);
+        }
+      }
+    }
+
+    let inputClass = this.classTemplate;
+    inputClass = inputClass.replace("{{name}}", inputClassName);
+    inputClass = inputClass.replace("{{fields}}", inputParams.join(";"));
+
+    let outputClass = this.classTemplate;
+    outputClass = outputClass.replace("{{name}}", outputClassName);
+    outputClass = outputClass.replace("{{fields}}", outputParams.join(";"));
+
+    return inputClass + outputClass;
   }
 
   private makeBindParam(param: ProcedureParam) {
@@ -180,12 +245,10 @@ export class Maker {
     const dir = `BIND_${param.IN_OUT}`;
 
     let type: string;
-    if (param.TYPE_NAME === param.PACKAGE_NAME) {
-      type = `"${param.TYPE_NAME}.${param.TYPE_SUBNAME}"`;
-    } else if (param.TYPE_SUBNAME) {
-      type = `"${param.TYPE_SUBNAME}"`;
+    if (param.TYPE_SUBNAME) {
+      type = `"${param.TYPE_OWNER}.${param.TYPE_NAME}.${param.TYPE_SUBNAME}"`;
     } else if (param.TYPE_NAME) {
-      type = `"${param.TYPE_NAME}"`;
+      type = `"${param.TYPE_OWNER}.${param.TYPE_NAME}"`;
     } else {
       type = param.DATA_TYPE;
     }
@@ -199,8 +262,14 @@ export class Maker {
     text += `dir: ${dir},`;
 
     if (param.IN_OUT === "IN") {
-      const def = param.DEFAULTED === "Y" ? " || null" : "";
-      text += `val: input.${name}${def},`;
+      let val: string;
+
+      if (param.DEFAULTED === "Y") {
+        val = `val: input.${name} !== undefined ? input.${name} : null,`;
+      } else {
+        val = `val: input.${name},`;
+      }
+      text += val;
     }
     text += "}";
     return text;
@@ -216,7 +285,7 @@ export class Maker {
     }
   }
 
-  private oracleTypeToTsType(oracleType: string) {
+  private oracleTypeToSwaggerType(oracleType: string) {
     if (oracleType === "NUMBER") {
       return "Number";
     }
@@ -225,6 +294,20 @@ export class Maker {
     }
     if (oracleType.includes("DATE")) {
       return "String";
+    }
+
+    return oracleType;
+  }
+
+  private oracleTypeToTsType(oracleType: string) {
+    if (oracleType === "NUMBER") {
+      return "number";
+    }
+    if (oracleType.includes("VARCHAR")) {
+      return "string";
+    }
+    if (oracleType.includes("DATE")) {
+      return "string";
     }
 
     return oracleType;

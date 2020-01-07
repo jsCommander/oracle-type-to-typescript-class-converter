@@ -14,6 +14,8 @@ import {
   BindParameters
 } from "oracledb";
 
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 export interface OracleProcedureData {
   sql: string;
   binds: BindParameters;
