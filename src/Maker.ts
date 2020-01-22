@@ -39,7 +39,7 @@ export class Maker {
     const fields: string[] = [];
     for (const type of types) {
       if (type.TYPE_NAME) {
-        const field = `${type.TYPE_NAME}="${type.PACKAGE_NAME}.${type.TYPE_NAME}"`;
+        const field = `${type.TYPE_NAME}="${type.OWNER}.${type.PACKAGE_NAME}.${type.TYPE_NAME}"`;
         fields.push(field);
       }
     }
@@ -108,9 +108,6 @@ export class Maker {
           typeInfo.type === Types.PACKAGE_COLLECTION_TYPE ||
           typeInfo.type === Types.SCHEMA_COLLECTION_TYPE
         ) {
-          jsType =
-            this.oracleTypeToTsType(typeInfo.collectionInfo.ELEM_TYPE_NAME) +
-            "[]";
           const swaggerType = this.oracleTypeToSwaggerType(
             typeInfo.collectionInfo.ELEM_TYPE_NAME
           );
@@ -209,9 +206,6 @@ export class Maker {
             const swaggerType = this.oracleTypeToSwaggerType(
               typeInfo.collectionInfo.ELEM_TYPE_NAME
             );
-            jsType =
-              this.oracleTypeToTsType(typeInfo.collectionInfo.ELEM_TYPE_NAME) +
-              "[]";
             swaggerInfo = isDefault
               ? `@ApiPropertyOptional( { type: [${swaggerType}] })`
               : `@ApiProperty( { type: [${swaggerType}] })`;

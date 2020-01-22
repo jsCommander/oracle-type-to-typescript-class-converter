@@ -94,7 +94,10 @@ export class TypeParser {
           console.log(
             `parser: found procedure ${proc.PROCEDURE_NAME} params info`
           );
-          procedures[proc.PROCEDURE_NAME].paramsInfo = params;
+          procedures[proc.PROCEDURE_NAME].paramsInfo = params.sort(
+            (a, b) => a.POSITION - b.POSITION
+          );
+
           this.fillTypesFromParams(params, schemas);
         });
       promises.push(promise);
